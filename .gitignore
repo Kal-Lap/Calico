@@ -1,0 +1,11 @@
+bin/
+graphs/
+results.csv
+plots/
+*.o
+*.d
+*.sg
+*.tar.gz
+*.txt.gz
+.DS_Store
+__pycache__/

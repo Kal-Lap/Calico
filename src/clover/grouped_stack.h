@@ -25,14 +25,16 @@ realloc.
 */
 
 /*
-Modified GroupedStack, no .resize() calls 
+Clover
+Note:
+  Modified to no longer .resize() at popback by using top_.
 */
 
 template <typename T_>
 class GroupedStack {
   std::vector<T_> elems_;
   std::vector<size_t> starts_;
-  size_t top_ = 0;  // logical end; elems_[top_..capacity) is dead storage
+  size_t top_ = 0;  // logical end, elems_[top_..capacity) is "dead" storage
 
  public:
   GroupedStack() {}
@@ -61,7 +63,7 @@ class GroupedStack {
     return std::span(elems_.data() + b, top_ - b);
   }
 
-  // O(1): just rewind top_, no deallocation
+  // rewind top, no .resize to reallocate
   void pop_frame() {
     top_ = starts_.back();
     starts_.pop_back();

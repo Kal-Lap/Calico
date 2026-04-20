@@ -1,8 +1,3 @@
-// complement_count.h — Complement-based independent set counting for dense subgraphs.
-// Templated on NW (bitmask words): NW=8 for ≤512 vertices, NW=64 for ≤4096 vertices.
-// All-pivot support via polynomial convolution with C(num_pivots, j).
-// Parallel IS via work-list: pre-walk exclude chain, parallel-for include branches.
-
 
 #ifndef COMPLEMENT_COUNT_H
 #define COMPLEMENT_COUNT_H
@@ -12,6 +7,19 @@
 #include <vector>
 #include <algorithm>
 #include <omp.h>
+
+/*
+Clover
+Author: <Clover Authors>
+
+Branch-and-reduce solver for independent set for dense subgraphs
+- Initially create complement of a subgraph
+- Compute the number of independent set within the complement graph
+- Returns the number of cliques based on the number of pivots and 
+  the independent sets counted via polynomial convolution
+
+*/
+
 
 // IS heuristic — all parameters sweepable via env vars.
 // C1: L <= nv <= U && comp_edges < D * nv   (sparse complement trigger)

@@ -17,6 +17,17 @@
 #include "grouped_stack.h"
 #include "packbit.h"
 
+/*
+Clover
+Author: Amogh Lonkar, Scott Beamer, <Clover Authors>
+
+Subgraph providing capabilities needed for Pivotscale
+- Initially created by inducing from a vertex (InduceFromDAG)
+- Further subgraph inductions mutate this data structure (InduceFromSelfMutate)
+- Can undo a subgraph induction (UndoSelfMutate)
+- Can induce (and undo) an arbitrary number of times (uses stack internally)
+*/
+
 
 #define TAIL 1
 #define EDGETAIL 1
@@ -29,23 +40,13 @@
 typedef int16_t sgNodeT;
 typedef int32_t sgPackedT;
 
-// typedef int64_t EdgeT;
-// typedef int16_t LvlT;
-
-/****** BitSet: compact boolean array with efficient set-bit iteration ******
- *
- * Replaces both active_ (dense boolean lookup) and active_list_ (active-vertex
- * enumeration).  Iteration via range(n) scans 64 bits at a time using ctzll,
- * visiting only words that contain at least one set bit.
- *
- * Usage:
- *   for (sgNodeT v : activebit_.range(nverts_cap_)) { ... }
- *
- * Clearing a bit during iteration is safe: the iterator works on a local copy
- * of each 64-bit word, so a clear() on an already-visited position has no
- * effect on the walk.
- ***************************************************************************/
 struct BitSet {
+  /*
+  Usage:
+    for (sgNodeT v : activebit_.range(nverts_cap_)) { ... }
+    iterator works on a local copy of each 64-bit word
+  */
+
   std::vector<uint64_t> words_;
 
   void resize(sgNodeT n) {
@@ -54,7 +55,6 @@ struct BitSet {
       words_.resize(nw, 0ULL);
   }
 
-  /* clear bits [0, n) — grow-only vector, so only touch the used prefix */
   void fill_false(sgNodeT n) {
     sgNodeT nw = (n + 63) >> 6;
     std::fill(words_.begin(), words_.begin() + nw, 0ULL);
@@ -64,17 +64,16 @@ struct BitSet {
   void clear(sgNodeT i) { words_[i >> 6] &= ~(1ULL << (i & 63)); }
   bool test (sgNodeT i) const { return (words_[i >> 6] >> (i & 63)) & 1; }
 
-  /* ---- iterator over positions of set bits ---- */
   struct Iter {
     const uint64_t* words;
     sgNodeT nwords;
     sgNodeT widx;
-    uint64_t cur;   /* local copy of current word */
+    uint64_t cur; 
 
     sgNodeT operator*() const { return (widx << 6) + __builtin_ctzll(cur); }
 
     Iter& operator++() {
-      cur &= cur - 1;                       /* clear lowest set bit */
+      cur &= cur - 1; /* clear lowest set bit */
       while (cur == 0 && ++widx < nwords)
         cur = words[widx];
       return *this;
@@ -103,25 +102,15 @@ struct BitSet {
   }
 };
 
-/* TODO:
-- overload active_scratch_ with bfs_levels instead.
-- combine dropped_verts & dropped_verts_tail 
-- clean up setting active_bit in induceFromDAG
-- mask deg < max_k vertices from induceFromDAG and pivotcount openmp fork
-*/
-
 class SubGraph{
-  /* graph
-   *   activebit_      : bit i set  <=>  vertex i is currently active.
-   *                     Replaces active_ (dense boolean) + active_list_.
-   *   active_scratch_ : uint8_t array used ONLY inside InduceFromSelfMutate
-   *                     to mark the new-active state (and as a counter in
-   *                     overload 3).  Zero outside of those calls.           */
+  /* active_scratch_ : uint8_t array used ONLY inside InduceFromSelfMutate
+                        to mark the new-active state (and as a counter in
+                        overload 3).  Zero outside of those calls.           */
   BitSet activebit_;
   std::vector<uint8_t> active_scratch_;
   std::vector<std::vector<sgNodeT>> adj_list_;
-  sgNodeT nverts_cap_ = 0;   /* vertex-ID range [0, nverts_cap_) for this subgraph;
-                                set at InduceFromDAG, unchanged during mutation  */
+  /* local vertex-ID range [0, nverts_cap_) set at InduceFromDAG, unchanged during mutation  */
+  sgNodeT nverts_cap_ = 0;   
 
   /* backtracking stack */
   GroupedStack<sgNodeT> dropped_verts_;
@@ -163,7 +152,6 @@ class SubGraph{
     #endif 
   #endif
 
-  // Iterate over active vertex IDs (no copy — returns a range over the bitset)
   auto active_range() const { return activebit_.range(nverts_cap_); }
   NodeID vertex_cap() const { return nverts_cap_; }
 
@@ -345,16 +333,7 @@ class SubGraph{
     }
   }
 
-  /******************* INDUCE FROM SELF MUTATE *********************/
-  /* active_scratch_ protocol:
-   *   - Before call:  all zeros (invariant maintained by cleanup at end).
-   *   - During call:  used as new-active marker (1 = keep, 0 = drop).
-   *                   Overload 3 also uses values 0/1/2 as a counter.
-   *   - After call:   restored to all zeros.
-   * activebit_ is updated in-place: bits for dropped vertices are cleared.
-   * Clearing a bit during activebit_.range() iteration is safe because the
-   * iterator holds a local copy of each 64-bit word.                        */
-
+  /******************* INDUCEFROMSELFMUTATE *********************/
   /* Overload 1: Induce from pivot */
   void InduceFromSelfMutate(sgNodeT p_r) {
     for (sgNodeT v_r : Neighs(p_r))
@@ -430,7 +409,7 @@ class SubGraph{
     sgNodeT v1_r = unpack_a(e);
     sgNodeT v2_r = unpack_b(e);
 
-    /* counting phase: active_scratch_ acts as a 0/1/2 counter */
+    /* active_scratch_ has as a 0/1/2 counter */
     for (sgNodeT n_r : activebit_.range(nverts_cap_)) active_scratch_[n_r] = 0;
     for (sgNodeT w_r : Neighs(v1_r)) active_scratch_[w_r]++;
     for (sgNodeT w_r : Neighs(v2_r)) active_scratch_[w_r]++;
@@ -496,7 +475,6 @@ class SubGraph{
       }
     }
 
-    /* restore active_scratch_ to all-zero (kept vertices are still set) */
     for (sgNodeT n_r : activebit_.range(nverts_cap_))
       active_scratch_[n_r] = 0;
   }
@@ -558,42 +536,6 @@ class SubGraph{
   }
 
   /************************* BFS & COVER EDGES FUNCTIONS ************/
-  // template<typename Cond_>
-  // void BFS(NodeID source, Cond_ unvisited) {
-  //   bfs_levels_[source] = curr_lvl;
-  //   curr_lvl_count = 1;
-  //   first_node_in_lvl = source;
-
-  //   LvlT prev;
-  //   q.push(source);
-  //   while (!q.empty()) {
-  //     NodeID u = q.front(); q.pop();
-  //     for (NodeID v : Neighs(u)) {
-  //       if (unvisited(u, v)) {
-  //         prev = bfs_levels_[v];
-  //         bfs_levels_[v] = bfs_levels_[u] + 1;
-  //         if (bfs_levels_[v] > curr_lvl) {
-  //           if(curr_lvl >= 3){
-  //             if (curr_lvl_count == 1)
-  //               singleinlvl.push_back(first_node_in_lvl);
-  //             curr_lvl_count = 1;
-  //             first_node_in_lvl = v;
-  //           }
-  //           curr_lvl = bfs_levels_[v];
-  //         } else {
-  //           if (prev != bfs_levels_[v] && curr_lvl >= 3) curr_lvl_count++;
-  //         }
-  //         q.push(v);
-  //       }
-  //     }
-  //   }
-  //   curr_lvl++;
-  //   if (curr_lvl_count == 1 && curr_lvl >= 3 )
-  //     singleinlvl.push_back(first_node_in_lvl);
-  //   for (const NodeID s_r : singleinlvl) bfs_levels_[s_r] = -2;
-  //   singleinlvl.clear();
-  // }
-
   template<typename Cond_>
   void BFS(sgNodeT source, Cond_ unvisited) {
     while (!q.empty()) q.pop();
@@ -678,12 +620,10 @@ class SubGraph{
       StackCrossEdges(pivot_id_r, k);
     #endif
     k = (k + 1) / 2;
-    // int iter = 0;
     while (k > 2) {
       prev_levels_ = bfs_levels_;
       BFTMasked(k);
       k = (k + 1) / 2;
-      // iter++;
     }
     #if EFFCOV
       return StackLevelEdges();
@@ -850,26 +790,13 @@ class SubGraph{
 };
 
 #if ENABLE_IS
-/****** CompGraph: complement graph with mutable adjacency lists ******
- *
- * Used by complement_count.h for independent set counting on dense subgraphs.
- *   - adj[v][0..tail[v])  = active complement neighbors
- *   - drop(v)             = swap v past tail in all neighbors' lists
- *   - undo_mutate()       = restore from GroupedStack
- *   - activebit[v]        = O(1) membership test
- *   - mark[v]             = scratch, within-level only
- *
- * Allocated once per thread. build() reuses grow-only buffers.
- * begin_mutate() / mutate_drop() / undo_mutate() for backtracking.
- *
- * Data:
- *   adj       : vector<vector<int>>  — complement neighbor lists (mutable order)
- *   tail      : vector<int>          — active tail per vertex: Neighs = adj[v][0..tail[v])
- *   activebit : vector<uint8_t>      — 1 if vertex is active
- *   mark      : vector<uint8_t>      — scratch, set/use/clear within single level
- *   dropped_verts / dropped_tails : GroupedStack — undo state (total ≤ nv)
- *   local_id_ / global_id_        : vertex ID mapping (grow-only)
- ***************************************************************************/
+/*
+  Allocated once per thread. build() reuses grow-only buffers.
+  begin_mutate() / mutate_drop() / undo_mutate() for backtracking.
+   - adj[v][0..tail[v]) active complement neighbors
+   - drop(v)            swap v past tail in all neighbors' lists
+   - mark[v]            scratch, within-level only
+*/
 struct CompGraph {
     int nv = 0;
     int edges = 0;

@@ -2,7 +2,6 @@
 #define PACKBIT_HPP
 #include <cstdint>
 
-/*** Overloads for int32_t <-> int64_t ***/
 inline int64_t pack2ints(int32_t a, int32_t b) {
     return (static_cast<int64_t>(a) << 32) | (static_cast<uint32_t>(b));
 }
@@ -22,7 +21,8 @@ inline bool packed_compare(int32_t a, int32_t b, int64_t e2) {
     return b < static_cast<int32_t>(e2 & 0xFFFFFFFF);
 }
 
-/*** Overloads for int16_t <-> int32_t ***/
+/********************************************/
+
 inline int32_t pack2ints(int16_t a, int16_t b) {
     return (static_cast<int32_t>(a) << 16) | (static_cast<uint16_t>(b));
 }

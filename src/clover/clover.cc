@@ -6,7 +6,10 @@
 #include "complement_count.h"
 #endif
 
+
 /*
+Author: Amogh Lonkar, Scott Beamer, <Clover Authors>
+
 Clover (Cover + optional IS on complement)
 
 Counts occurrences of cliques of size k using Cover-based pivoting.

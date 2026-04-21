@@ -1,9 +1,11 @@
+.env
 bin/
 graphs/
-results.csv
-thread_scaling.csv
-param_sweep.csv
+jobs/
+output/
+results/
 plots/
+tables/
 *.o
 *.d
 *.sg

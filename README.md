@@ -7,117 +7,104 @@ counts independent sets on the complement graph.
 ## Quick start
 
 ```bash
-python3 -m pip install -r requirements.txt
+# 1. Set SLURM scope for your cluster (any of these can be omitted;
+#    the corresponding #SBATCH line is then dropped and SLURM's defaults
+#    are used).
+export SLURM_ACCOUNT=my-account
+export SLURM_PARTITION=my-queue
+export SLURM_CONSTRAINT=my-arch
+
+# 2. Submit the workflow:
 ./reproduce.sh
+
+# 3. When all jobs finish, generate paper outputs:
+python3 -m pip install -r requirements.txt
+python3 generate_paper_outputs.py
 ```
 
-`reproduce.sh` builds the three counting binaries plus a graph converter,
-downloads the eight input graphs from the SuiteSparse Matrix Collection,
-runs the benchmark sweep (k = 3..12), writes per-run times to
-`results.csv`, and renders the runtime figure in `plots/`.
+`reproduce.sh` writes sbatch scripts under `jobs/` and submits them with
+explicit dependencies:
 
-For a smaller end-to-end run (Clover+IS on com-LiveJournal at k=7):
-
-```bash
-make run-example
 ```
+00_build.sbatch  →  01_fetch_graphs.sbatch  →  {runtime, thread, param, stats}
+```
+
+The build job compiles every binary on the compute node (needed so
+`-march=native` targets the actual hardware). The fetch job downloads the
+eight SuiteSparse graphs and converts them to `.sg`. All experiment jobs
+wait for `afterok` on the fetch job, so nothing runs until the inputs are
+ready.
+
+`generate_paper_outputs.py` scans `output/**/*.out`, aggregates per
+experiment kind, and emits:
+
+- `results/runtime.csv`, `results/thread_scaling_k7.csv`,
+  `results/param_sweep_k7.csv`, `results/summary_k7.csv`,
+  `results/stats_*.csv` — machine-readable data
+- `tables/runtime.tex`, `tables/speedup.tex` — paper tables
+- `plots/plot_runtime_tree.svg`, `plots/plot_stacked_density.svg`,
+  `plots/thread_scaling_is_only.svg`, `plots/plot_param_sweep.svg` —
+  paper figures
 
 ## Selective runs
 
-All scopes come from env vars; the default is the full sweep.
+Every scope is controlled by an environment variable. Defaults reproduce
+the full paper sweep.
 
 ```bash
-# Clover+IS only on com-LiveJournal
-GRAPHS="com-LiveJournal" BINARIES="clover_is" ./reproduce.sh
+# Smoke test: only com-LiveJournal, clover_is, k=7, one repeat
+RUNTIME_GRAPHS="com-LiveJournal" FIGURE_GRAPHS="com-LiveJournal" \
+  CONFIGS="clover_is" K_MIN=7 K_MAX=7 REPEATS=1 ./reproduce.sh
 
-# Runtime table at k=7 only
-K_MIN=7 K_MAX=7 ./reproduce.sh
-
-# Two graphs, all binaries, k=3..12
-GRAPHS="com-LiveJournal uk-2005" ./reproduce.sh
+# Generate only the sbatch files without submitting
+DRY_RUN=1 ./reproduce.sh
 ```
 
-The script is resumable: already-completed `(graph, binary, k)` rows are
-skipped on re-run. Delete `results.csv` to start fresh.
-
-## Thread scaling and parameter sweep
-
-Two additional experiments live in `scripts/`. They reuse the `.sg`
-files produced by `reproduce.sh`, so run `reproduce.sh` first (or at least
-let the fetch phase complete).
-
-```bash
-# Parallel speedup vs thread count, Clover+IS, k=7
-scripts/thread_scaling.sh
-python3 plot_thread_scaling.py thread_scaling.csv plots/
-
-# CD (complement-degree) and SD (subgraph-density) parameter sweep, k=7
-scripts/param_sweep.sh
-python3 plot_param_sweep.py param_sweep.csv plots/
-```
-
-Both scripts accept the same kinds of env-var overrides as `reproduce.sh`
-(`GRAPHS`, `K`, `THREADS`, `CD_VALUES`, `SD_VALUES`).
+Submission is idempotent at the job-file level (a rerun overwrites
+`jobs/*.sbatch` and resubmits). Outputs accumulate under `output/`; delete
+the directory to start fresh.
 
 ## Requirements
 
-- Linux x86-64
+- Linux x86-64 with SLURM
 - gcc 11 or newer (C++20 with OpenMP)
-- Python 3.8+ with matplotlib (see `requirements.txt`)
-- `curl`, `tar`, `gunzip`
-- Disk: ~60 GB for the converted `.sg` files (webbase and com-Friendster dominate)
-- RAM: ≥128 GB recommended for the large web graphs; smaller graphs
-  run on a laptop
+- Python 3.8+ with matplotlib and numpy (see `requirements.txt`)
+- `wget` or `curl`, `tar`
+- Disk: ~60 GB for the converted `.sg` files (webbase and com-Friendster
+  dominate)
+- RAM: ≥128 GB recommended for the large web graphs
 
-The artifact has been run end-to-end on an Intel Granite Rapids node
-(192 threads, 768 GB RAM). Any x86-64 Linux box with enough memory will
-reproduce the same trends; absolute timings will differ.
-
-`reproduce.sh` sets `OMP_NUM_THREADS` to `$(nproc)` if unset. Override as
-needed:
-
-```bash
-OMP_NUM_THREADS=64 ./reproduce.sh
-```
-
-If your environment picks a compiler without OpenMP support, rebuild with:
-
-```bash
-make CXX=g++ -j all
-```
+The paper numbers were produced on an Intel Xeon 6972P (Granite Rapids,
+192 cores, 768 GB RAM). Any x86-64 Linux cluster with enough memory per
+node will reproduce the same trends; absolute timings will differ.
 
 ## Graphs
 
 All eight graphs are fetched from the SuiteSparse Matrix Collection at
 runtime.
 
-| Graph            | Source                                          |
-| ---------------- | ----------------------------------------------- |
-| com-LiveJournal  | SuiteSparse / SNAP                              |
-| com-Orkut        | SuiteSparse / SNAP                              |
-| com-Friendster   | SuiteSparse / SNAP                              |
-| hollywood-2009   | SuiteSparse / LAW                               |
-| indochina-2004   | SuiteSparse / LAW                               |
-| arabic-2005      | SuiteSparse / LAW                               |
-| uk-2005          | SuiteSparse / LAW                               |
-| webbase-2001     | SuiteSparse / LAW                               |
+| Graph            | Source              |
+| ---------------- | ------------------- |
+| com-LiveJournal  | SuiteSparse / SNAP  |
+| com-Orkut        | SuiteSparse / SNAP  |
+| com-Friendster   | SuiteSparse / SNAP  |
+| hollywood-2009   | SuiteSparse / LAW   |
+| indochina-2004   | SuiteSparse / LAW   |
+| arabic-2005      | SuiteSparse / LAW   |
+| uk-2005          | SuiteSparse / LAW   |
+| webbase-2001     | SuiteSparse / LAW   |
 
 ## Layout
 
 ```
 CloverIS/
-├── reproduce.sh               main benchmark sweep → results.csv
-├── Makefile                   builds bin/{clover, clover_is, pivotscale, converter}
-├── requirements.txt           Python plotting dependency
-├── plot_runtime.py            results.csv          → plots/runtime.{png,svg}
-├── plot_thread_scaling.py     thread_scaling.csv   → plots/thread_scaling.{png,svg}
-├── plot_param_sweep.py        param_sweep.csv      → plots/param_sweep.{png,svg}
-├── scripts/
-│   ├── thread_scaling.sh      Clover+IS × {1..192} threads at k=7
-│   └── param_sweep.sh         Clover+IS × CD and SD sweeps at k=7
+├── reproduce.sh                 writes jobs/*.sbatch and submits them
+├── generate_paper_outputs.py    parses output/**/*.out → tables + figures
+├── Makefile                     6 binaries from 2 source files
+├── requirements.txt             matplotlib, numpy
 └── src/
-    ├── clover/                Clover and Clover+IS (ENABLE_IS compile flag)
-    └── pivotscale/            PivotScale baseline + graph converter
+    ├── clover/                  Clover and Clover+IS (ENABLE_IS, ENABLE_STATS)
+    └── pivotscale/              PivotScale baseline + graph converter
 ```
 
 ## License

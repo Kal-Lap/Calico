@@ -3,17 +3,18 @@
 #
 # clover      — Cover-based pivoting (no IS)
 # clover_is   — Cover-based pivoting + complement IS (the proposed algorithm)
-# pivotscale  — PivotScale baseline (independent source tree)
-# converter   — SNAP edge-list → .sg serialized format
+# pivotscale  — PivotScale baseline
+# converter   — SNAP edge-list / Matrix Market → .sg serialized format
 #
-# For graphs with very large clique counts (k >= 10 on large graphs),
-# build with USE_128=1 to use 128-bit integers and avoid overflow:
-#   make USE_128=1
+# 128-bit integer counts are enabled by default to avoid silent overflow
+# at large k on the paper's graphs (e.g. webbase-2001 k=12 ≈ 10^18).
+# To force 64-bit counts, build with USE_128=0.
 
 CXX      ?= g++
 CXXFLAGS  = -std=c++20 -O3 -fopenmp -march=native -Wall
 BIN       = bin
 
+USE_128 ?= 1
 ifeq ($(USE_128),1)
   CXXFLAGS += -DUSE_128
 endif
@@ -38,7 +39,12 @@ $(BIN)/clover_is: src/clover/clover.cc $(CLOVER_HDRS) | $(BIN)
 $(BIN)/converter: src/pivotscale/converter.cc $(PIVOTSCALE_HDRS) | $(BIN)
 	$(CXX) $(CXXFLAGS) $< -o $@
 
+# Smallest end-to-end run: Clover+IS on com-LiveJournal at k=7.
+# Exercises the whole pipeline (build → fetch → convert → run → plot).
+run-example: all
+	GRAPHS="com-LiveJournal" BINARIES="clover_is" K_MIN=7 K_MAX=7 ./reproduce.sh
+
 clean:
 	rm -rf $(BIN)
 
-.PHONY: all clean
+.PHONY: all clean run-example

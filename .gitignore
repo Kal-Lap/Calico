@@ -1,6 +1,8 @@
 bin/
 graphs/
 results.csv
+thread_scaling.csv
+param_sweep.csv
 plots/
 *.o
 *.d
@@ -9,3 +11,5 @@ plots/
 *.txt.gz
 .DS_Store
 __pycache__/
+.ruff_cache/
+.opencode-memory/

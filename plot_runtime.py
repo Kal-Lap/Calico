@@ -1,11 +1,8 @@
 #!/usr/bin/env python3
 """
-Plot CloverIS reproduction results.
+Plot per-(graph,k) counting time for PivotScale, Clover, and Clover+IS.
 
-Reads results.csv produced by reproduce.sh and writes a runtime figure
-comparing PivotScale, Clover, and Clover+IS across all graphs.
-
-Usage:  python3 plot.py results.csv plots/
+Usage:  python3 plot_runtime.py results.csv plots/
 """
 import csv
 import os
@@ -16,11 +13,9 @@ import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 
-# ─── Style (matching paper's generate_plots.py) ───
 plt.rcParams.update({
     'font.family': 'serif',
     'font.size': 22,
-    'font.weight': 'normal',
     'axes.titlesize': 24,
     'axes.titleweight': 'bold',
     'axes.labelsize': 22,
@@ -34,15 +29,17 @@ plt.rcParams.update({
     'savefig.pad_inches': 0.05,
 })
 
-# ─── Colors (matching paper) ───
-C_PS  = '#d32f2f'   # red
-C_COV = '#f9a825'   # amber
-C_IS  = '#2e7d32'   # green
+C_PS  = '#d32f2f'
+C_COV = '#f9a825'
+C_IS  = '#2e7d32'
 
 GRAPH_LABEL = {
-    "com-lj":          "LJ",
-    "com-orkut":       "Or",
+    "com-LiveJournal": "LJ",
+    "com-Orkut":       "Or",
+    "com-Friendster":  "Fr",
+    "hollywood-2009":  "Ho",
     "indochina-2004":  "In",
+    "arabic-2005":     "Ar",
     "uk-2005":         "UK",
     "webbase-2001":    "Wb",
 }
@@ -65,10 +62,7 @@ def load(path):
             except (ValueError, TypeError):
                 continue
             raw[row["graph"]][row["binary"]][k] = t
-    data = {}
-    for g, bins in raw.items():
-        data[g] = {b: sorted(bins[b].items()) for b in bins}
-    return data
+    return {g: {b: sorted(bins[b].items()) for b in bins} for g, bins in raw.items()}
 
 
 def plot_runtime(data, out_dir):
@@ -76,11 +70,9 @@ def plot_runtime(data, out_dir):
     if not graphs:
         print("No recognized graphs in data", file=sys.stderr)
         return
-    ng = len(graphs)
-    fig, axes = plt.subplots(1, ng, figsize=(4.0 * ng, 4.5))
-    if ng == 1:
+    fig, axes = plt.subplots(1, len(graphs), figsize=(4.0 * len(graphs), 4.5))
+    if len(graphs) == 1:
         axes = [axes]
-
     for ax, g in zip(axes, graphs):
         for b in BINARIES:
             series = data[g].get(b, [])
@@ -92,12 +84,10 @@ def plot_runtime(data, out_dir):
         ax.set_title(GRAPH_LABEL[g])
         ax.set_xlabel("k")
         ax.grid(True, which="both", linestyle=":", alpha=0.4)
-
     axes[0].set_ylabel("Counting Time (s)")
     axes[-1].legend(loc="best", frameon=True, edgecolor='#cccccc', fancybox=False)
     fig.tight_layout()
-
-    for ext in ['png', 'svg']:
+    for ext in ('png', 'svg'):
         path = os.path.join(out_dir, f'runtime.{ext}')
         fig.savefig(path, bbox_inches='tight')
         print(f"  wrote {path}")

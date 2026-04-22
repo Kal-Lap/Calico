@@ -68,7 +68,8 @@ the directory to start fresh.
 
 - Linux x86-64 with SLURM
 - gcc 11 or newer (C++20 with OpenMP)
-- Python 3.8+ with matplotlib and numpy (see `requirements.txt`)
+- Python 3.8+ with matplotlib, numpy, pandas, and seaborn (see
+  `requirements.txt`)
 - `wget` or `curl`, `tar`
 - Disk: ~60 GB for the converted `.sg` files (webbase and com-Friendster
   dominate)
@@ -101,7 +102,7 @@ CloverIS/
 ├── reproduce.sh                 writes jobs/*.sbatch and submits them
 ├── generate_paper_outputs.py    parses output/**/*.out → tables + figures
 ├── Makefile                     6 binaries from 2 source files
-├── requirements.txt             matplotlib, numpy
+├── requirements.txt             matplotlib, numpy, pandas, seaborn
 └── src/
     ├── clover/                  Clover and Clover+IS (ENABLE_IS, ENABLE_STATS)
     └── pivotscale/              PivotScale baseline + graph converter

@@ -95,7 +95,8 @@ emit_sbatch_header() {
   local cpus="$3"
   local walltime="$4"
   local output_path="$5"
-  local array_count="${6:-}"
+  local error_path="$6"
+  local array_count="${7:-}"
 
   {
     echo "#!/usr/bin/env bash"
@@ -111,6 +112,7 @@ emit_sbatch_header() {
     echo "#SBATCH --time=$walltime"
     [[ -n "$array_count" ]] && echo "#SBATCH --array=1-$array_count"
     echo "#SBATCH --output=$output_path"
+    echo "#SBATCH --error=$error_path"
     echo
     echo "set -euo pipefail"
     echo "cd \"$HERE\""
@@ -251,7 +253,8 @@ build_thread_tasks() {
 
 write_build_job() {
   local script="$JOBS_DIR/00_build.sbatch"
-  emit_sbatch_header "$script" "clover_build" "$BUILD_CPUS" "$BUILD_TIME" "output/build/%x-%j.out"
+  emit_sbatch_header "$script" "clover_build" "$BUILD_CPUS" "$BUILD_TIME" \
+    "output/build/%x-%j.out" "output/build/%x-%j.err"
   cat >> "$script" <<EOF
 echo "RUN kind=build threads=$BUILD_CPUS"
 echo "HOST \$(hostname)"
@@ -263,7 +266,8 @@ EOF
 
 write_fetch_job() {
   local script="$JOBS_DIR/01_fetch_graphs.sbatch"
-  emit_sbatch_header "$script" "clover_fetch" "$BUILD_CPUS" "$FETCH_TIME" "output/fetch/%x-%j.out"
+  emit_sbatch_header "$script" "clover_fetch" "$BUILD_CPUS" "$FETCH_TIME" \
+    "output/fetch/%x-%j.out" "output/fetch/%x-%j.err"
   cat >> "$script" <<EOF
 echo "RUN kind=fetch threads=$BUILD_CPUS"
 echo "HOST \$(hostname)"
@@ -314,7 +318,8 @@ EOF
 write_runtime_array() {
   local count="$1"
   local script="$JOBS_DIR/runtime.sbatch"
-  emit_sbatch_header "$script" "rt" "$THREADS" "$RUN_TIME" "output/runtime/%A_%a.out" "$count"
+  emit_sbatch_header "$script" "rt" "$THREADS" "$RUN_TIME" \
+    "output/runtime/%A_%a.out" "output/runtime/%A_%a.err" "$count"
   append_run_helpers "$script"
   cat >> "$script" <<EOF
 
@@ -340,7 +345,8 @@ write_thread_array() {
   local threads="$1"
   local count="$2"
   local script="$JOBS_DIR/thread_t${threads}.sbatch"
-  emit_sbatch_header "$script" "th_t${threads}" "$threads" "$SWEEP_TIME" "output/thread/%A_%a.out" "$count"
+  emit_sbatch_header "$script" "th_t${threads}" "$threads" "$SWEEP_TIME" \
+    "output/thread/%A_%a.out" "output/thread/%A_%a.err" "$count"
   append_run_helpers "$script"
   cat >> "$script" <<EOF
 
@@ -357,7 +363,8 @@ EOF
 write_param_array() {
   local count="$1"
   local script="$JOBS_DIR/param.sbatch"
-  emit_sbatch_header "$script" "pm" "$THREADS" "$SWEEP_TIME" "output/param/%A_%a.out" "$count"
+  emit_sbatch_header "$script" "pm" "$THREADS" "$SWEEP_TIME" \
+    "output/param/%A_%a.out" "output/param/%A_%a.err" "$count"
   append_run_helpers "$script"
   cat >> "$script" <<EOF
 
@@ -382,7 +389,8 @@ EOF
 write_stats_array() {
   local count="$1"
   local script="$JOBS_DIR/stats.sbatch"
-  emit_sbatch_header "$script" "st" "$THREADS" "$STATS_TIME" "output/stats/%A_%a.out" "$count"
+  emit_sbatch_header "$script" "st" "$THREADS" "$STATS_TIME" \
+    "output/stats/%A_%a.out" "output/stats/%A_%a.err" "$count"
   append_run_helpers "$script"
   cat >> "$script" <<EOF
 

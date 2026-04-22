@@ -285,8 +285,8 @@ declare -A GRAPH_PATH=(
   [webbase-2001]="LAW/webbase-2001"
 )
 
-SS_PRIMARY="https://suitesparse-collection-website.herokuapp.com/MM"
-SS_FALLBACK="https://sparse.tamu.edu/MM"
+SS_PRIMARY="https://sparse.tamu.edu/MM"
+SS_FALLBACK="https://suitesparse-collection-website.herokuapp.com/MM"
 GRAPHS=($RUNTIME_GRAPHS $FIGURE_GRAPHS)
 
 cd "$GRAPHS_DIR"
@@ -303,6 +303,7 @@ for graph in "\${GRAPHS[@]}"; do
   echo "FETCH graph=\$graph status=download"
   wget -q "\$SS_PRIMARY/\$path.tar.gz" -O "\$graph.tar.gz" \\
     || wget -q "\$SS_FALLBACK/\$path.tar.gz" -O "\$graph.tar.gz" \\
+    || curl -L -f --retry 3 -o "\$graph.tar.gz" "\$SS_PRIMARY/\$path.tar.gz" \\
     || curl -L -f --retry 3 -o "\$graph.tar.gz" "\$SS_FALLBACK/\$path.tar.gz"
   mkdir -p "\$graph"
   tar xzf "\$graph.tar.gz" --strip-components=1 -C "\$graph"

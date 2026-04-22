@@ -23,13 +23,9 @@ import matplotlib.pyplot as plt
 import matplotlib.ticker as ticker
 import numpy as np
 
-# Style block from ../pivotcover/results/paper/generate_plots.py.
-try:
-    import seaborn as sns
-    sns.set_theme(style="darkgrid", palette="dark")
-    colors = sns.color_palette("dark")
-except ImportError:
-    colors = ["#1f77b4", "#ff7f0e", "#2ca02c", "#d62728", "#9467bd"]
+import seaborn as sns
+
+sns.set_theme(style="darkgrid", palette="dark")
 
 ROOT = Path(__file__).resolve().parent
 OUT_DIR = ROOT / "output"
@@ -59,9 +55,6 @@ plt.rcParams.update({
     "savefig.bbox": "tight",
     "savefig.pad_inches": 0.05,
 })
-
-FIG_ROW5 = lambda h=4.5: (4.0 * 5, h)
-FIG_SINGLE = (6, 4.5)
 
 C_PS = "#d32f2f"
 C_COV = "#f9a825"

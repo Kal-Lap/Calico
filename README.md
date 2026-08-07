@@ -1,10 +1,48 @@
 # CloverIS
 
 Reproducibility artifact for the SC26 submission introducing **Clover**, a
-parallel k-clique counting algorithm, and **Clover+IS**, its extension that
-counts independent sets on the complement graph.
+parallel k-clique counting algorithm (contribution $C_1$), and **Clover+IS**, its extension that counts independent sets on the complement graph (Hybrid algorithm of contribution $C_1$ and $C_2$).
 
-## Quick start
+## Building & Executing on Many-Core system
+The artifact requires a single many-core system with $\geq 128$GB RAM and $\geq 60$GB disk. See software requirements below. 
+
+To compile all executables for reproducing experimental results:
+```bash
+cd /path/to/source/repo
+make -j all
+```
+
+To compile only the implementation of $C_1$:
+```bash
+cd /path/to/source/repo
+make bin/clover
+```
+
+To compile only the implementation of the hybrid algorithm of $C_1$ and $C_2$:
+```bash
+cd /path/to/source/repo
+make bin/clover_is
+```
+
+To run:
+```bash
+OMP_NUM_THREADS=<threads> ./<executable> -s -f "path/to/<input_graph>.sg" -c "<clique_size>" -l "<clique_size>"
+```
+
+For example, executing the hybrid algorithm of $C_1$ and $C_2$ on the graph com-LiveJournal to count cliques of size 7 using 128 threads:
+```bash
+OMP_NUM_THREADS=128 ./bin/clover_is -s -f "graphs/com-LiveJournal.sg" -c "7" -l "7"
+```
+
+To convert an input graph with .mtx format into .sg format, compile the converter and run:
+```bash
+cd /path/to/source/repo
+make bin/converter
+./bin/converter -sf "path/to/<input_graph>.mtx" -b "<input_graph>.sg"
+```
+
+
+## Experiment Quick start
 
 ```bash
 # 1. Set SLURM scope for your cluster (any of these can be omitted;
@@ -64,7 +102,7 @@ Submission is idempotent at the job-file level (a rerun overwrites
 `jobs/*.sbatch` and resubmits). Outputs accumulate under `output/`; delete
 the directory to start fresh.
 
-## Requirements
+## Software Requirements
 
 - Linux x86-64 with SLURM
 - gcc 11 or newer (C++20 with OpenMP)

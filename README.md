@@ -43,6 +43,7 @@ make bin/converter
 
 
 ## Experiment Quick start
+Our artifacts do not require SLURM to build or execute. However, to reproduce the experimental result, we recommend submitting jobs via SLURM scripts. We provide \texttt{reproduce.sh} to generate all SLURM scripts nescessary to prepare all input data and submit experimental runs.
 
 ```bash
 # 1. Set SLURM scope for your cluster (any of these can be omitted;

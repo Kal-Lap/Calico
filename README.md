@@ -105,7 +105,8 @@ the directory to start fresh.
 
 ## Software Requirements
 
-- Linux x86-64 with SLURM
+- Linux x86-64 (SLURM optional — only used by `reproduce.sh` for automated
+  reproduction; building and running the binaries directly needs no SLURM)
 - gcc 11 or newer (C++20 with OpenMP)
 - Python 3.8+ with matplotlib, numpy, pandas, and seaborn (see
   `requirements.txt`)

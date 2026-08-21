@@ -96,21 +96,12 @@ static int count_edges(const Bitmask<NW>* adj, const Bitmask<NW>& active, int nw
 
 // MAX_K is the inline-buffer capacity only. It is NOT a bound on k: a polynomial whose window
 // is wider than this spills to the heap, so counts stay exact for every k.
-static constexpr int MAX_K = 16;
+#ifndef PS_MAX_K
+#define PS_MAX_K 16
+#endif
+static constexpr int MAX_K = PS_MAX_K;
 
-// Independence polynomial over a coefficient window, with small-buffer storage.
-//
-// Storage contract:
-//   * A poly holds exactly the degrees [lo_, deg_]. Degrees outside that range are not stored
-//     and must never be read.
-//   * Up to INLINE_CAP coefficients live in ibuf_; a wider window spills to a heap buffer sized
-//     to exactly the window. heap_ == nullptr is the "inline" flag, and heap_ != nullptr implies
-//     ibuf_ is all zeros, so dropping heap_ always lands on a valid inline poly.
-//   * deg_ < INLINE_CAP pins lo_ to 0, so a run whose windows all fit inline indexes a plain
-//     0..deg_ array with no window arithmetic at all.
-//
-// The spill flag is a null heap_ rather than a pointer back into ibuf_ because a
-// self-referential pointer would make every copy depend on the destination address.
+// Stores exactly [lo_, deg_]; windows wider than INLINE_CAP spill to the heap.
 struct Poly {
     static constexpr int INLINE_CAP = MAX_K + 1;   // inline holds INLINE_CAP coefficients
     int      lo_;                                   // lowest stored degree
@@ -118,19 +109,19 @@ struct Poly {
     count_t* heap_;                                 // nullptr => coefficients live in ibuf_
     count_t  ibuf_[INLINE_CAP];
 
-    Poly() { heap_ = nullptr; lo_ = 0; deg_ = 0; std::memset(ibuf_, 0, sizeof ibuf_); }
-    explicit Poly(int deg) { init(0, deg); }        // full 0..deg, all coefficients zero
-    Poly(int lo, int deg)  { init(lo, deg); }       // window lo..deg, all coefficients zero
+    Poly() { heap_ = nullptr; lo_ = 0; deg_ = 0; ibuf_[0] = 0; }
+    explicit Poly(int deg) { init(0, deg); }
+    Poly(int lo, int deg)  { init(lo, deg); }
     Poly(const Poly& o)     { copy_from(o); }
     Poly(Poly&& o) noexcept { move_from(o); }
     Poly& operator=(const Poly& o) {
-        if (this == &o) return *this;               // memcpy of aliasing buffers is UB
-        if (!heap_ && !o.heap_) { lo_ = o.lo_; deg_ = o.deg_; std::memcpy(ibuf_, o.ibuf_, sizeof ibuf_); return *this; }
+        if (this == &o) return *this;
+        if (!heap_ && !o.heap_) { copy_inline(o); return *this; }
         release(); copy_from(o); return *this;
     }
     Poly& operator=(Poly&& o) noexcept {
         if (this == &o) return *this;
-        if (!heap_ && !o.heap_) { lo_ = o.lo_; deg_ = o.deg_; std::memcpy(ibuf_, o.ibuf_, sizeof ibuf_); return *this; }
+        if (!heap_ && !o.heap_) { copy_inline(o); return *this; }
         release(); move_from(o); return *this;
     }
     ~Poly() { delete[] heap_; }
@@ -143,24 +134,26 @@ struct Poly {
   private:
     count_t*       data()       { return heap_ ? heap_ : ibuf_; }
     const count_t* data() const { return heap_ ? heap_ : ibuf_; }
+    void copy_inline(const Poly& o) {
+        heap_ = nullptr; lo_ = o.lo_; deg_ = o.deg_;
+        std::memcpy(ibuf_, o.ibuf_, (size_t)(deg_ - lo_ + 1) * sizeof(count_t));
+    }
     void init(int lo, int deg) {
-        if (deg < INLINE_CAP) lo = 0;               // fits inline whole: keep the classic layout
         int w = deg - lo + 1;
-        if (w <= INLINE_CAP) { heap_ = nullptr; lo_ = lo; deg_ = deg; std::memset(ibuf_, 0, sizeof ibuf_); }
+        if (w <= INLINE_CAP) { heap_ = nullptr; lo_ = lo; deg_ = deg; std::memset(ibuf_, 0, (size_t)w * sizeof(count_t)); }
         else                 { adopt(new count_t[w](), lo, deg); }
     }
-    // Sole entry into the spilled state, so it alone must establish "heap_ set => ibuf_ zero".
-    void adopt(count_t* h, int lo, int deg) { heap_ = h; lo_ = lo; deg_ = deg; std::memset(ibuf_, 0, sizeof ibuf_); }
+    void adopt(count_t* h, int lo, int deg) { heap_ = h; lo_ = lo; deg_ = deg; }
     void release() { delete[] heap_; heap_ = nullptr; lo_ = 0; deg_ = 0; }
     void copy_from(const Poly& o) {
-        if (!o.heap_) { heap_ = nullptr; lo_ = o.lo_; deg_ = o.deg_; std::memcpy(ibuf_, o.ibuf_, sizeof ibuf_); }
+        if (!o.heap_) { copy_inline(o); }
         else { size_t w = (size_t)(o.deg_ - o.lo_ + 1);
-               count_t* h = new count_t[w];          // adopt last: empty state if new throws
+               count_t* h = new count_t[w];
                std::memcpy(h, o.heap_, w * sizeof(count_t));
                adopt(h, o.lo_, o.deg_); }
     }
     void move_from(Poly& o) {
-        if (!o.heap_) { heap_ = nullptr; lo_ = o.lo_; deg_ = o.deg_; std::memcpy(ibuf_, o.ibuf_, sizeof ibuf_); }
+        if (!o.heap_) { copy_inline(o); }
         else { adopt(o.heap_, o.lo_, o.deg_); o.heap_ = nullptr; o.lo_ = 0; o.deg_ = 0; }
     }
 };
@@ -213,6 +206,18 @@ static Poly poly_convolve(const Poly& a, const Poly& b, int maxk, int lo) {
     return r;
 }
 
+static Poly poly_convolve_binomial(int n, int binom_lo, int binom_deg,
+                                   const Poly& b, int maxk, int lo) {
+    Poly r(lo, maxk);
+    for (int i = binom_lo; i <= binom_deg; i++) {
+        count_t a = choose(n, i);
+        int db = b.deg() < (maxk - i) ? b.deg() : (maxk - i);
+        int j0 = lo - i; if (j0 < b.lo()) j0 = b.lo();
+        for (int j = j0; j <= db; j++) r[i + j] += a * b[j];
+    }
+    return r;
+}
+
 // Defined below with the CompGraph path; the near-clique fast path solves its core with it.
 static Poly comp_solve(CompGraph& g, int nv, int edges, int maxk, int lo);
 
@@ -249,49 +254,58 @@ static Poly count_indep_poly(const Bitmask<NW>* adj, Bitmask<NW> active, int n, 
                               int nv, int edges, int maxk, int lo) {
     const int U = poly_deg_bound(maxk, nv);
     if (lo > U) return Poly(U, U);                   // needed band empty: prune the subtree
-    Poly result(lo, U);
-    if (lo == 0) result[0] = 1;
-    if (nv == 0 || maxk == 0) return result;
+    if (nv == 0 || maxk == 0) {
+        Poly result(lo, U);
+        if (lo == 0) result[0] = 1;
+        return result;
+    }
 
     // Tighten scan limits: find highest active vertex, reduce n and nw
     for (int w = nw - 1; w >= 0; w--) {
         if (active[w]) { n = (w << 6) + (63 - __builtin_clzll(active[w])) + 1; nw = w + 1; break; }
     }
-    if (lo <= 1) result[1] = nv;
-    if (U == 1) return result;
+    if (U == 1) {
+        Poly result(lo, U);
+        if (lo == 0) result[0] = 1;
+        result[1] = nv;
+        return result;
+    }
     if (edges == 0) {
+        Poly result(lo, U);
         for (int j = lo; j <= U && j <= nv; j++) result[j] = choose(nv, j);
         return result;
     }
-    if (lo <= 2) result[2] = choose(nv, 2) - edges;
-    if (U == 2) return result;
+    if (U == 2) {
+        Poly result(lo, U);
+        if (lo == 0) result[0] = 1;
+        if (lo <= 1) result[1] = nv;
+        result[2] = choose(nv, 2) - edges;
+        return result;
+    }
 
     // Degree-0 folding: remove isolated vertices, convolve with choose(n_iso, j)
     // Also compute max degree and wedge sum for k=3 termination
     int best = -1, best_deg = -1, n_isolated = 0;
     int64_t wedge_sum = 0;
+    Bitmask<NW> isolated{};
     bm_for_each<NW>(active, nw, [&](int v) {
         int deg = bm_popcount<NW>(bm_and<NW>(adj[v], active, nw), nw);
-        if (deg == 0) n_isolated++;
+        if (deg == 0) { n_isolated++; bm_set<NW>(isolated, v); }
         if (deg > best_deg) { best_deg = deg; best = v; }
-        wedge_sum += (int64_t)deg * (deg - 1) / 2;
+        if (U == 3) wedge_sum += (int64_t)deg * (deg - 1) / 2;
     });
     if (best_deg == 0) {
+        Poly result(lo, U);
         for (int j = lo; j <= U && j <= nv; j++) result[j] = choose(nv, j);
         return result;
     }
     if (n_isolated > 0) {
-        Bitmask<NW> new_active = active;
-        bm_for_each<NW>(active, nw, [&](int v) {
-            if (bm_popcount<NW>(bm_and<NW>(adj[v], active, nw), nw) == 0)
-                bm_clear<NW>(new_active, v);
-        });
+        Bitmask<NW> new_active = bm_andnot<NW>(active, isolated, nw);
         int A  = U < n_isolated ? U : n_isolated;    // effective degree of (1+x)^n_iso here
         int Ur = poly_deg_bound(maxk, nv - n_isolated);
-        Poly iso(band_lo(lo - Ur), A);               // each factor's band is set by the other's degree
-        for (int j = iso.lo(); j <= A; j++) iso[j] = choose(n_isolated, j);
+        int iso_lo = band_lo(lo - Ur);
         Poly rest = count_indep_poly<NW>(adj, new_active, n, nw, nv - n_isolated, edges, maxk, band_lo(lo - A));
-        return poly_convolve(iso, rest, U, lo);
+        return poly_convolve_binomial(n_isolated, iso_lo, A, rest, U, lo);
     }
 
     // k=3 termination: IS(G,3) = C(n,3) - m*(n-2) + Σ C(deg,2) - triangles
@@ -312,6 +326,10 @@ static Poly count_indep_poly(const Bitmask<NW>* adj, Bitmask<NW> active, int n, 
                 }
             }
         });
+        Poly result(lo, U);
+        if (lo == 0) result[0] = 1;
+        if (lo <= 1) result[1] = nv;
+        if (lo <= 2) result[2] = choose(nv, 2) - edges;
         result[3] = choose(nv, 3) - (count_t)edges * (nv - 2) + (count_t)wedge_sum - tri;
         return result;
     }
@@ -359,6 +377,7 @@ static Poly count_indep_poly(const Bitmask<NW>* adj, Bitmask<NW> active, int n, 
     Poly p_exc = count_indep_poly<NW>(adj, active2, n, nw, nv - 1, edges - best_deg, maxk, lo);
 
     // Each child's own vertex count can bound it below U, so copy to its own degree.
+    Poly result(lo, U);
     int de = p_exc.deg() < U ? p_exc.deg() : U;
     for (int j = lo; j <= de; j++) result[j] = p_exc[j];
     int di = p_inc.deg() < U - 1 ? p_inc.deg() : U - 1;
@@ -539,7 +558,7 @@ static CompPrescan comp_prescan(const SubGraph* sg, int nv) {
 //
 // Identical to the dense path because complement[S] IS the core its degree-0 fold reduces to,
 // and the pivot convolution runs over the same index range. s ≥ 2 whenever s > 0, so
-// ks = min(poly_k,s) ≥ 1 and poly_convolve drops only zeros.
+// ks = min(poly_k,s) ≥ 1.
 template<typename SubGraph>
 static count_t nearclique_is_convolve(SubGraph* sg, const CompPrescan& st,
                                       int nv, int num_pivots, int need_total) {
@@ -580,9 +599,7 @@ static count_t nearclique_is_convolve(SubGraph* sg, const CompPrescan& st,
     // The universal vertices fold in as (1+x)^n_iso, so the core's band starts isod lower.
     Poly q = comp_solve(gS, s, gS.edges, ks, band_lo(lo0 - isod));
 
-    Poly iso(band_lo(lo0 - ks), isod);
-    for (int j = iso.lo(); j <= isod; j++) iso[j] = choose(st.n_iso, j);
-    Poly p = poly_convolve(iso, q, poly_k, lo0);
+    Poly p = poly_convolve_binomial(st.n_iso, band_lo(lo0 - ks), isod, q, poly_k, lo0);
 
     count_t result = 0;
     for (int j = 0; j <= num_pivots && j <= need_total; j++) {
@@ -693,17 +710,29 @@ struct CountImpl {
 static Poly comp_solve(CompGraph& g, int nv, int edges, int maxk, int lo) {
     const int U = poly_deg_bound(maxk, nv);
     if (lo > U) return Poly(U, U);                   // needed band empty: prune the subtree
-    Poly result(lo, U);
-    if (lo == 0) result[0] = 1;
-    if (nv == 0 || maxk == 0) return result;
-    if (lo <= 1) result[1] = nv;
-    if (U == 1) return result;
+    if (nv == 0 || maxk == 0) {
+        Poly result(lo, U);
+        if (lo == 0) result[0] = 1;
+        return result;
+    }
+    if (U == 1) {
+        Poly result(lo, U);
+        if (lo == 0) result[0] = 1;
+        result[1] = nv;
+        return result;
+    }
     if (edges == 0) {
+        Poly result(lo, U);
         for (int j = lo; j <= U && j <= nv; j++) result[j] = choose(nv, j);
         return result;
     }
-    if (lo <= 2) result[2] = choose(nv, 2) - edges;
-    if (U == 2) return result;
+    if (U == 2) {
+        Poly result(lo, U);
+        if (lo == 0) result[0] = 1;
+        if (lo <= 1) result[1] = nv;
+        result[2] = choose(nv, 2) - edges;
+        return result;
+    }
 
     // Pre-scan: iterate active vertices via activebit
     int best = -1, best_deg = -1, n_isolated = 0;
@@ -725,11 +754,10 @@ static Poly comp_solve(CompGraph& g, int nv, int edges, int maxk, int lo) {
         }
         int A  = U < n_isolated ? U : n_isolated;
         int Ur = poly_deg_bound(maxk, nv - n_isolated);
-        Poly iso(band_lo(lo - Ur), A);
-        for (int j = iso.lo(); j <= A; j++) iso[j] = choose(n_isolated, j);
+        int iso_lo = band_lo(lo - Ur);
         Poly rest = comp_solve(g, nv - n_isolated, edges, maxk, band_lo(lo - A));
         g.undo_mutate();
-        return poly_convolve(iso, rest, U, lo);
+        return poly_convolve_binomial(n_isolated, iso_lo, A, rest, U, lo);
     }
 
     // k=3 triangle formula
@@ -749,6 +777,10 @@ static Poly comp_solve(CompGraph& g, int nv, int edges, int maxk, int lo) {
                 for (int j = 0; j < g.tail[u]; j++) g.mark[g.adj[u][j]] = 0;
             }
         }
+        Poly result(lo, U);
+        if (lo == 0) result[0] = 1;
+        if (lo <= 1) result[1] = nv;
+        if (lo <= 2) result[2] = choose(nv, 2) - edges;
         result[3] = choose(nv,3) - (count_t)edges*(nv-2) + (count_t)wedge_sum - tri;
         return result;
     }
@@ -838,6 +870,7 @@ static Poly comp_solve(CompGraph& g, int nv, int edges, int maxk, int lo) {
     Poly p_exc = comp_solve(g, nv - 1, edges - best_deg, maxk, lo);
     g.undo_mutate();
 
+    Poly result(lo, U);
     int de = p_exc.deg() < U ? p_exc.deg() : U;
     for (int j = lo; j <= de; j++) result[j] = p_exc[j];
     int di = p_inc.deg() < U - 1 ? p_inc.deg() : U - 1;
